@@ -144,6 +144,10 @@ def build_parser() -> argparse.ArgumentParser:
     get.add_argument("--overwrite", action="store_true", help="replace an existing local file")
     listed = commands.add_parser("ls", help="list logical files")
     listed.add_argument("prefix", nargs="?", default="/")
+    backup = commands.add_parser("backup", help="create a consistent, verified local manifest backup")
+    backup.add_argument("destination", type=Path, help="new SQLite backup path (existing files are refused)")
+    inspect = commands.add_parser("inspect-backup", help="verify a backup and its integrity receipt without account access")
+    inspect.add_argument("path", type=Path, help="previously created SQLite backup path")
     for command, help_text in (
         ("stat", "print file size and checksum"),
         ("rm", "delete a logical file and its stored chunks"),
@@ -204,6 +208,23 @@ def run(args: argparse.Namespace) -> int:
         config["backends"].append(item)
         _save_config(state, config)
         print(f"added {item['type']} backend {args.name}")
+        return 0
+
+    # Metadata custody does not require opening any provider/account backend.
+    # Backup is deliberately local-only and never modifies account data.
+    if args.command == "backup":
+        _load_config(state)
+        from .recovery import create_backup
+
+        print(_file_json(create_backup(
+            state / "index.sqlite3", args.destination.expanduser().resolve(),
+            config_path=_config_file(state),
+        )))
+        return 0
+    if args.command == "inspect-backup":
+        from .recovery import inspect_backup
+
+        print(_file_json(inspect_backup(args.path.expanduser().resolve())))
         return 0
 
     store = _build_store(state)

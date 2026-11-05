@@ -33,6 +33,18 @@ class MissingBackendError(IOError):
     """The metadata references an unconfigured backend."""
 
 
+class BackendIdentityMismatchError(BackendError):
+    """A configured backend name now resolves to a different declared location."""
+
+
+class BackendIdentityCollisionError(BackendError):
+    """Two backend names resolve to the same declared physical location."""
+
+
+class LegacyBackendBindingRequiredError(BackendError):
+    """Existing chunks predate locator pinning and require explicit migration."""
+
+
 @dataclass(frozen=True)
 class FileInfo:
     path: str
@@ -142,8 +154,65 @@ class HeavenStore:
                     UNIQUE(backend, chunk_id)
                 );
                 CREATE INDEX IF NOT EXISTS chunks_by_backend ON chunks(backend);
+                CREATE TABLE IF NOT EXISTS backend_bindings (
+                    name TEXT PRIMARY KEY,
+                    locator_sha256 TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                );
                 """
             )
+            # Pin declared routes in a SQLite write transaction. This protects
+            # against accidentally remapping account 'A' onto another root when
+            # a config is edited. It is NOT attestation of a Google account:
+            # existing rclone aliases may be rebound outside Heaven's control.
+            db.execute("BEGIN IMMEDIATE")
+            known = {
+                str(row["name"]): str(row["locator_sha256"])
+                for row in db.execute("SELECT name, locator_sha256 FROM backend_bindings")
+            }
+            referenced = {
+                str(row["backend"])
+                for row in db.execute("SELECT DISTINCT backend FROM chunks")
+            }
+            pending: list[tuple[str, str, float]] = []
+            locations: dict[str, str] = {}
+            for old_name, old_digest in known.items():
+                previously_assigned = locations.setdefault(old_digest, old_name)
+                if previously_assigned != old_name:
+                    raise BackendIdentityCollisionError(
+                        "backend identity table contains duplicate physical locations"
+                    )
+            for name, backend in self.backends.items():
+                locator = backend.identity_locator()
+                if not isinstance(locator, str) or not locator:
+                    raise BackendIdentityMismatchError(f"backend {name!r} has no stable identity locator")
+                fingerprint = hashlib.sha256(locator.encode("utf-8")).hexdigest()
+                previously_assigned = locations.get(fingerprint)
+                if previously_assigned is not None and previously_assigned != name:
+                    raise BackendIdentityCollisionError(
+                        f"backend {name!r} duplicates storage location assigned to {previously_assigned!r}"
+                    )
+                locations[fingerprint] = name
+                previous = known.get(name)
+                if previous is None:
+                    if name in referenced:
+                        # An 0.1 manifest has no trustworthy record of which
+                        # physical root originally held these chunks. Reusing
+                        # a same-named config without an explicit verified
+                        # adoption could silently point to unrelated data.
+                        raise LegacyBackendBindingRequiredError(
+                            f"backend {name!r} has unbound legacy chunks; manual migration required"
+                        )
+                    pending.append((name, fingerprint, time.time()))
+                elif previous != fingerprint:
+                    raise BackendIdentityMismatchError(
+                        f"backend {name!r} physical locator changed; refusing to remap existing data"
+                    )
+            if pending:
+                db.executemany(
+                    "INSERT INTO backend_bindings(name, locator_sha256, created_at) VALUES(?,?,?)",
+                    pending,
+                )
 
     def close(self) -> None:
         """Compatibility with context-managed callers; connections are per operation."""
@@ -374,4 +443,8 @@ class HeavenStore:
                 pass
 
 
-__all__ = ["HeavenStore", "FileInfo", "IntegrityError", "MissingBackendError", "InsufficientCapacityError"]
+__all__ = [
+    "HeavenStore", "FileInfo", "IntegrityError", "MissingBackendError",
+    "BackendIdentityMismatchError", "BackendIdentityCollisionError",
+    "LegacyBackendBindingRequiredError", "InsufficientCapacityError",
+]
