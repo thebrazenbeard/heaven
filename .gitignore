@@ -1,0 +1,28 @@
+# Python bytecode and tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Developer-local Heaven storage data and metadata
+*.sqlite
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal
+.heaven/
+
+# Editor/OS files
+.DS_Store
+.idea/
+config.bat
+node_modules
