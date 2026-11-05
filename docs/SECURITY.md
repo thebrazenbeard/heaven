@@ -9,6 +9,8 @@ Heaven is a virtual storage manager, **not** a way to make provider-owned storag
 - The local WebDAV listener is for loopback testing. Put authentication in front of it before accepting writes; no public interface, autostart, or Internet exposure is justified by source tests.
 - A complete file is only advertised after its chunks and committed manifest are present. Use SHA-256 to detect damage, not to repair it. Redundancy/erasure coding remains a separate, unimplemented recovery feature until tested.
 - The SQLite catalog is operationally critical. Copies of data chunks alone cannot reconstruct filenames, chunk order, or ownership. Back it up independently, test restore, and consider an encrypted replicated catalog before storing irreplaceable data.
+- The catalog's backend bindings protect against accidental name-to-root or name-to-remote remapping, but do not independently attest the provider account behind a mutable rclone alias. Legacy manifests without binding evidence fail closed pending a controlled migration.
+- An online SQLite backup and SHA-256 receipt can prove byte consistency and detect accidental corruption. It is **not** proof against a malicious party able to replace both the catalog and receipt. Snapshot files, receipts and config sidecars require private custody; Windows ACL behavior is not yet host-verified. The backup does not include chunk payloads.
 - No storage provider is a substitute for a separately controlled, recoverable backup. If a backend disappears, files may become unreadable unless recoverable copies or erasure coding were actually written.
 
 ## Threats to challenge
@@ -21,5 +23,7 @@ Heaven is a virtual storage manager, **not** a way to make provider-owned storag
 6. Concurrent writers selecting the same backend capacity or superseding each other.
 7. External backend quotas, retries, versioning semantics and provider throttling.
 8. Secrets leaking through process command lines, logs or committed configuration.
+9. Two backend aliases referring to the same physical account or folder, double-counting capacity.
+10. Interrupted backup publication leaving an incomplete bundle that requires explicit inspection; never treat a backup without a verified receipt as available recovery data.
 
 Release status is **development prototype** until fault-injection, restore and independently authorized provider integration tests pass. Do not use for sole-copy data.

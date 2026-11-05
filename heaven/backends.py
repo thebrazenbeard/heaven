@@ -39,6 +39,7 @@ class ChunkConflictError(BackendError):
 class StorageBackend(Protocol):
     name: str
 
+    def identity_locator(self) -> str: ...
     def capacity_bytes(self) -> int: ...
     def used_bytes(self) -> int: ...
     def put_chunk(self, chunk_id: str, data: bytes) -> None: ...
@@ -127,6 +128,14 @@ class LocalDirectoryBackend:
 
     def capacity_bytes(self) -> int:
         return self._quota
+
+    def identity_locator(self) -> str:
+        """Versioned canonical locator; no credentials or transient metadata."""
+        return "local:" + json.dumps(
+            {"root": os.path.normcase(str(self.root.resolve())), "v": 1},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     def _path(self, chunk_id: str) -> Path:
         chunk_id = _check_chunk_id(chunk_id)
@@ -241,6 +250,18 @@ class RcloneBackend:
 
     def capacity_bytes(self) -> int:
         return self._quota
+
+    def identity_locator(self) -> str:
+        """Declared route only, not proof of the underlying provider account.
+
+        A user can repoint an rclone config alias without changing this locator.
+        Do not mistake the catalog's binding for remote account attestation.
+        """
+        return "rclone:" + json.dumps(
+            {"executable": self.executable, "remote": self.remote, "v": 1},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     def _prefix(self) -> str:
         return self.remote + "/chunks"
