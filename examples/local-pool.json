@@ -1,0 +1,16 @@
+{
+  "database": "../demo-state/index.sqlite3",
+  "chunk_size": 1048576,
+  "stores": [
+    {
+      "name": "disk-a",
+      "root": "../demo-state/disk-a",
+      "capacity_bytes": 16777216
+    },
+    {
+      "name": "disk-b",
+      "root": "../demo-state/disk-b",
+      "capacity_bytes": 16777216
+    }
+  ]
+}
